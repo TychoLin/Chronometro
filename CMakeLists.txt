@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0.0)
 
-project(metronome)
+project(chronometro)
 
 set(LIBS
   juce_audio_basics
@@ -11,6 +11,7 @@ set(LIBS
   juce_core
   juce_cryptography
   juce_data_structures
+  juce_dsp
   juce_events
   juce_graphics
   juce_gui_basics
