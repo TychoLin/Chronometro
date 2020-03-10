@@ -20,27 +20,19 @@ public:
         colourScheme.setUIColour(ColourScheme::defaultText, Colours::teal);
         colourScheme.setUIColour(ColourScheme::highlightedText, Colours::teal);
         colourScheme.setUIColour(ColourScheme::widgetBackground, Colours::mediumaquamarine);
+        colourScheme.setUIColour(ColourScheme::outline, Colours::transparentBlack);
         setColourScheme(colourScheme);
         setColour(Label::backgroundColourId, Colours::mediumaquamarine);
     }
 
-    void drawButtonBackground(
-        Graphics& g,
-        Button& button,
-        const Colour& backgroundColour,
-        bool isMouseOverButton,
-        bool isButtonDown) override
+    Font getTextButtonFont(TextButton&, int buttonHeight) override
     {
-        auto buttonArea = button.getLocalBounds();
+        return { buttonHeight * 0.6f };
+    }
 
-        g.setColour(backgroundColour);
-        g.fillRect(buttonArea);
-
-        if (isMouseOverButton)
-        {
-            g.setColour(backgroundColour.brighter());
-            g.fillRect(buttonArea);
-        }
+    Font getLabelFont(Label& label) override
+    {
+        return { label.getHeight() * 0.6f };
     }
 };
 
@@ -51,7 +43,7 @@ public:
 
     void paint(Graphics& g) override
     {
-        g.setColour(Colours::whitesmoke);
+        g.setColour(Colours::teal);
 
         auto lineThickness = 1.0f;
 
@@ -89,28 +81,27 @@ public:
 
     void paint(Graphics& g) override
     {
-        g.fillAll(Colours::mediumvioletred);
+        g.fillAll(Colours::mediumaquamarine);
     }
 
     void resized() override
     {
-        int margin = 10;
-        int diameter = (getWidth() - margin - 10 * 2) / 2;
-        leftCircleBeat.setBounds(10, 10, diameter, diameter);
-        rightCircleBeat.setBounds(10 + diameter + margin, 10, diameter, diameter);
+        int diameter = getHeight() * 0.7;
+        int marginTop = getHeight() * 0.15;
+        int marginLeft = (getWidth() - 2 * diameter) / 3;
+        leftCircleBeat.setBounds(marginLeft, marginTop, diameter, diameter);
+        rightCircleBeat.setBounds(diameter + 2 * marginLeft, marginTop, diameter, diameter);
     }
 
     void mouseDown(const MouseEvent& event) override
     {
-        stopTimer();
     }
 
 private:
     void timerCallback() override
     {
         repaint();
-        leftCircleBeat.fill = !leftCircleBeat.fill;
-        rightCircleBeat.fill = !rightCircleBeat.fill;
+        std::swap(leftCircleBeat.fill, rightCircleBeat.fill);
     }
 
     CircleBeatComponent leftCircleBeat;
@@ -182,19 +173,19 @@ private:
     {
         if (state != Playing)
         {
+            headerPanel.visualBeatRegion.startTimer(static_cast<int>(musicMetre.getIntervalPerBeat() * 1000));
             changeState(Starting);
-            // visualBeatRegion.startTimer(static_cast<int>(musicMetre.getIntervalPerBeat() * 1000));
         }
         else
-            startButton.setToggleState(true, dontSendNotification);
+            headerPanel.startButton.setToggleState(true, dontSendNotification);
     }
 
     void stopButtonClicked()
     {
         if (state != Stopped)
         {
+            headerPanel.visualBeatRegion.stopTimer();
             changeState(Stopping);
-            // visualBeatRegion.stopTimer();
         }
     }
 
@@ -207,18 +198,122 @@ private:
         }
     };
 
+    struct HeaderPanel : public Component
+    {
+        HeaderPanel(Music::Metre& metre) : musicMetre(metre)
+        {
+            tapButton.setButtonText("Tap");
+            tapButton.onClick = [this] {
+                musicMetre.setTapBPM();
+                BPMLabel.setBPM(musicMetre.getBPM());
+            };
+            addAndMakeVisible(&tapButton);
+
+            BPMLabel.setEditable(true);
+            BPMLabel.setBPM(musicMetre.getBPM());
+            BPMLabel.onTextChange = [this] {
+                auto bpm = BPMLabel.getText().getFloatValue();
+                musicMetre.setBPM(bpm);
+                BPMLabel.setBPM(musicMetre.getBPM());
+            };
+            addAndMakeVisible(&BPMLabel);
+
+            startButton.setButtonText("Start");
+            startButton.setClickingTogglesState(true);
+            startButton.setColour(TextButton::buttonOnColourId, Colours::blanchedalmond);
+            startButton.onClick = [this] { reinterpret_cast<MainComponent*>(getParentComponent())->playButtonClicked(); };
+            addAndMakeVisible(&startButton);
+
+            stopButton.setButtonText("Stop");
+            stopButton.onClick = [this] {
+                startButton.setToggleState(false, dontSendNotification);
+                reinterpret_cast<MainComponent*>(getParentComponent())->stopButtonClicked();
+            };
+            addAndMakeVisible(&stopButton);
+
+            addAndMakeVisible(&visualBeatRegion);
+        }
+
+        void paint(Graphics& g) override
+        {
+        }
+
+        void resized() override
+        {
+            auto isPortrait = getHeight() > getWidth();
+
+            FlexBox fb1stGroup;
+            FlexBox fb2ndGroup;
+            FlexBox fbContainer;
+            float margin = 8.0f;
+
+            fb1stGroup.flexDirection = isPortrait ? FlexBox::Direction::column : FlexBox::Direction::row;
+
+            fb1stGroup.items.add(FlexItem(tapButton).withFlex(1));
+            fb1stGroup.items.add(FlexItem(startButton).withFlex(1));
+            fb1stGroup.items.add(FlexItem(stopButton).withFlex(1));
+
+            fb2ndGroup.flexWrap = FlexBox::Wrap::wrap;
+            fb2ndGroup.justifyContent = FlexBox::JustifyContent::flexStart;
+            fb2ndGroup.alignContent = FlexBox::AlignContent::flexStart;
+
+            if (isPortrait)
+            {
+                FlexItem::Margin BPMLabelMargin;
+                BPMLabelMargin.bottom = margin;
+                fb2ndGroup.items.add(FlexItem(BPMLabel).withMinWidth(getWidth()).withMinHeight(getWidth() * 0.5f).withMargin(BPMLabelMargin));
+                fb2ndGroup.items.add(FlexItem(visualBeatRegion).withMinWidth(getWidth()).withMinHeight(getWidth() * 0.5f));
+            }
+            else
+            {
+                FlexItem::Margin BPMLabelMargin;
+                BPMLabelMargin.right = margin;
+                fb2ndGroup.items.add(FlexItem(BPMLabel).withMinWidth(getHeight()).withMinHeight(getHeight() * 0.5f).withMargin(BPMLabelMargin));
+                fb2ndGroup.items.add(FlexItem(visualBeatRegion).withMinWidth(getHeight()).withMinHeight(getHeight() * 0.5f));
+            }
+
+            fbContainer.flexDirection = FlexBox::Direction::column;
+
+            FlexItem::Margin fb1stGroupMargin;
+            fb1stGroupMargin.bottom = margin;
+            fbContainer.items.addArray({ FlexItem(fb1stGroup).withFlex(1).withMargin(fb1stGroupMargin),
+                                         FlexItem(fb2ndGroup).withFlex(1) });
+            fbContainer.performLayout(getLocalBounds().toFloat());
+        }
+
+        Music::Metre& musicMetre;
+
+        TextButton tapButton;
+        BPMLabel BPMLabel;
+        TextButton startButton;
+        TextButton stopButton;
+        VisualBeatComponent visualBeatRegion;
+    };
+
+    struct BodyPanel : public Component
+    {
+        BodyPanel()
+        {
+        }
+
+        void paint(Graphics& g) override
+        {
+        }
+
+        void resized() override
+        {
+        }
+    };
+
     AppLookAndFeel appLookAndFeel;
 
-    TextButton tapButton;
-    BPMLabel BPMLabel;
-    TextButton startButton;
-    TextButton stopButton;
-    VisualBeatComponent visualBeatRegion;
-
-    BeatAudioSource beatAudioSource;
     Music::Metre musicMetre;
+    BeatAudioSource beatAudioSource;
 
     TransportState state;
+
+    HeaderPanel headerPanel;
+    BodyPanel bodyPanel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

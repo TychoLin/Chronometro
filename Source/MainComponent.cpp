@@ -9,46 +9,18 @@
 #include "MainComponent.h"
 
 //==============================================================================
-MainComponent::MainComponent() : beatAudioSource(musicMetre)
+MainComponent::MainComponent() : beatAudioSource(musicMetre), headerPanel(musicMetre)
 {
     // Make sure you set the size of the component after
     // you add any child components.
     setLookAndFeel(&appLookAndFeel);
 
-    tapButton.setButtonText("Tap");
-    tapButton.onClick = [this] {
-        musicMetre.setTapBPM();
-        BPMLabel.setBPM(musicMetre.getBPM());
-    };
-    addAndMakeVisible(&tapButton);
-
-    BPMLabel.setEditable(true);
-    BPMLabel.setBPM(musicMetre.getBPM());
-    BPMLabel.onTextChange = [this] {
-        auto bpm = BPMLabel.getText().getFloatValue();
-        musicMetre.setBPM(bpm);
-        BPMLabel.setBPM(musicMetre.getBPM());
-    };
-    addAndMakeVisible(&BPMLabel);
-
-    startButton.setButtonText("Start");
-    startButton.setClickingTogglesState(true);
-    startButton.setColour(TextButton::buttonOnColourId, Colours::blanchedalmond);
-    startButton.onClick = [this] { playButtonClicked(); };
-    addAndMakeVisible(&startButton);
-
-    stopButton.setButtonText("Stop");
-    stopButton.onClick = [this] {
-        startButton.setToggleState(false, dontSendNotification);
-        stopButtonClicked();
-    };
-    addAndMakeVisible(&stopButton);
+    addAndMakeVisible(&headerPanel);
+    addAndMakeVisible(&bodyPanel);
 
     beatAudioSource.addChangeListener(this);
 
-    // addAndMakeVisible(&visualBeatRegion);
-
-    setSize(400, 300);
+    setSize(640, 360);
 
     // Some platforms require permissions to open input channels so request that here
     if (RuntimePermissions::isRequired(RuntimePermissions::recordAudio)
@@ -108,7 +80,7 @@ void MainComponent::releaseResources()
 void MainComponent::paint(Graphics& g)
 {
     // (Our component is opaque, so we must completely fill the background with a solid colour)
-    g.fillAll(appLookAndFeel.findColour(ResizableWindow::backgroundColourId));
+    g.fillAll(getLookAndFeel().findColour(ResizableWindow::backgroundColourId));
 
     // You can add your drawing code here!
 }
@@ -118,21 +90,43 @@ void MainComponent::resized()
     // This is called when the MainContentComponent is resized.
     // If you add any child components, this is where you should
     // update their positions.
-    auto headerHeight = 40;
-    auto headerPadding = 10;
-    auto area = getLocalBounds();
-    auto headArea = area.removeFromTop(headerHeight).reduced(headerPadding);
+    auto isPortrait = getHeight() > getWidth();
 
-    auto itemMargin = 3;
-    tapButton.setBounds(headArea.withWidth(40));
-    headArea.removeFromLeft(tapButton.getWidth() + itemMargin);
-    BPMLabel.setBounds(headArea.withWidth(60));
-    headArea.removeFromLeft(BPMLabel.getWidth() + itemMargin);
-    startButton.setBounds(headArea.withWidth(40));
-    headArea.removeFromLeft(startButton.getWidth() + itemMargin);
-    stopButton.setBounds(headArea.withWidth(40));
+    FlexBox fbGroup;
+    FlexBox fbContainer;
+    float margin = 8.0f;
 
-    // visualBeatRegion.setBounds(10, 10 + 20 + 10, 100, 60);
+    if (isPortrait)
+    {
+        auto width = getWidth() - 2.0f * margin;
+        auto height = getHeight() - 3.0f * margin;
+
+        fbGroup.flexDirection = FlexBox::Direction::column;
+
+        FlexItem header(width, height * 0.25f, headerPanel);
+        FlexItem body(width, height * 0.75f, bodyPanel);
+
+        FlexItem::Margin headerPanelMargin;
+        headerPanelMargin.bottom = margin;
+        fbGroup.items.addArray({ header.withMargin(headerPanelMargin), body });
+    }
+    else
+    {
+        auto width = getWidth() - 3.0f * margin;
+        auto height = getHeight() - 2.0f * margin;
+
+        fbGroup.flexDirection = FlexBox::Direction::row;
+
+        FlexItem header(width * 0.25f, height, headerPanel);
+        FlexItem body(width * 0.75f, height, bodyPanel);
+
+        FlexItem::Margin headerPanelMargin;
+        headerPanelMargin.right = margin;
+        fbGroup.items.addArray({ header.withMargin(headerPanelMargin), body });
+    }
+
+    fbContainer.items.add(FlexItem(fbGroup).withMargin({ margin }));
+    fbContainer.performLayout(getLocalBounds().toFloat());
 }
 
 void MainComponent::changeListenerCallback(ChangeBroadcaster* source)

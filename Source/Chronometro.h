@@ -86,6 +86,16 @@ public:
             return BPM;
         }
 
+        float getIntervalPerBeat()
+        {
+            return 60.0f / BPM;
+        }
+
+        double getSampleRatePerBeat()
+        {
+            return audioDeviceSampleRate * getIntervalPerBeat();
+        }
+
         void createMetre()
         {
             auto note4th = getSampleRatePerBeat();
@@ -135,16 +145,6 @@ public:
         {
             tapTimes.clear();
             stopTimer();
-        }
-
-        float getIntervalPerBeat()
-        {
-            return 60.0f / BPM;
-        }
-
-        double getSampleRatePerBeat()
-        {
-            return audioDeviceSampleRate * getIntervalPerBeat();
         }
 
         float BPM = 120.0f;
