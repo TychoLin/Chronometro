@@ -23,6 +23,7 @@ public:
         colourScheme.setUIColour(ColourScheme::outline, Colours::transparentBlack);
         setColourScheme(colourScheme);
         setColour(Label::backgroundColourId, Colours::mediumaquamarine);
+        setColour(TextButton::buttonOnColourId, Colours::lemonchiffon);
     }
 
     Font getTextButtonFont(TextButton&, int buttonHeight) override
@@ -198,6 +199,104 @@ private:
         }
     };
 
+    class NoteButton : public TextButton
+    {
+    public:
+        NoteButton(const Music::Metre::PulseIterator it) : pulseIterator(it)
+        {
+            state = noteValueVector.begin();
+            while (state != noteValueVector.end() && *state != (*it)->noteValue)
+                ++state;
+
+            setButtonText(String((int) *state));
+            onClick = [this] {
+                if (++state == noteValueVector.end())
+                    state = noteValueVector.begin();
+
+                setButtonText(String((int) *state));
+                (*pulseIterator)->noteValue = *state;
+                (*pulseIterator)->pulseChangeBroadcaster->sendChangeMessage();
+            };
+        }
+
+        const Music::Metre::PulseIterator pulseIterator;
+
+    private:
+        std::vector<Music::NoteValue>::iterator state;
+        std::vector<Music::NoteValue> noteValueVector {
+            Music::NoteValue::quarter,
+            Music::NoteValue::eighth,
+            Music::NoteValue::tuplet,
+            Music::NoteValue::sixteenth
+        };
+    };
+
+    struct MetreComponent : public Component
+    {
+        MetreComponent(const Music::Metre::PulseIterator it)
+        {
+            noteButton.reset(new NoteButton(it));
+            addAndMakeVisible(noteButton.get());
+
+            addButton.setButtonText("+");
+            addButton.onClick = [this] {
+                static_cast<BodyPanel*>(getParentComponent())->metreAddButtonClicked(noteButton->pulseIterator);
+            };
+            addAndMakeVisible(&addButton);
+
+            deleteButton.setButtonText("-");
+            deleteButton.onClick = [this] {
+                static_cast<BodyPanel*>(getParentComponent())->metreDeleteButtonClicked(noteButton->pulseIterator);
+            };
+            addAndMakeVisible(&deleteButton);
+
+            hitButton.setButtonText("h");
+            hitButton.setToggleState((*noteButton->pulseIterator)->hit, dontSendNotification);
+            hitButton.onClick = [this] {
+                hitButton.setToggleState(!hitButton.getToggleState(), dontSendNotification);
+                (*noteButton->pulseIterator)->hit = hitButton.getToggleState();
+            };
+            addAndMakeVisible(&hitButton);
+
+            accentButton.setButtonText(">");
+            accentButton.onClick = [this] {
+                accentButton.setToggleState(!accentButton.getToggleState(), dontSendNotification);
+                (*noteButton->pulseIterator)->accent = accentButton.getToggleState() ? 0.3f : 0.0f;
+            };
+            addAndMakeVisible(&accentButton);
+        }
+
+        void paint(Graphics& g) override
+        {
+        }
+
+        void resized() override
+        {
+            FlexBox fbGroup;
+            FlexBox fb;
+
+            fbGroup.items.add(FlexItem(addButton).withFlex(1));
+            fbGroup.items.add(FlexItem(deleteButton).withFlex(1));
+            fbGroup.items.add(FlexItem(hitButton).withFlex(1));
+            fbGroup.items.add(FlexItem(accentButton).withFlex(1));
+
+            fb.flexWrap = FlexBox::Wrap::wrap;
+            fb.justifyContent = FlexBox::JustifyContent::flexStart;
+            fb.alignContent = FlexBox::AlignContent::flexStart;
+
+            fb.items.add(FlexItem(fbGroup).withMinWidth(getWidth()).withMinHeight(getHeight() / 3.0f));
+            fb.items.add(FlexItem(*noteButton).withMinWidth(getWidth()).withMinHeight(getHeight() * 2.0f / 3.0f));
+
+            fb.performLayout(getLocalBounds().toFloat());
+        }
+
+        std::unique_ptr<NoteButton> noteButton;
+        TextButton addButton;
+        TextButton deleteButton;
+        TextButton hitButton;
+        TextButton accentButton;
+    };
+
     struct HeaderPanel : public Component
     {
         HeaderPanel(Music::Metre& metre) : musicMetre(metre)
@@ -220,14 +319,13 @@ private:
 
             startButton.setButtonText("Start");
             startButton.setClickingTogglesState(true);
-            startButton.setColour(TextButton::buttonOnColourId, Colours::blanchedalmond);
-            startButton.onClick = [this] { reinterpret_cast<MainComponent*>(getParentComponent())->playButtonClicked(); };
+            startButton.onClick = [this] { static_cast<MainComponent*>(getParentComponent())->playButtonClicked(); };
             addAndMakeVisible(&startButton);
 
             stopButton.setButtonText("Stop");
             stopButton.onClick = [this] {
                 startButton.setToggleState(false, dontSendNotification);
-                reinterpret_cast<MainComponent*>(getParentComponent())->stopButtonClicked();
+                static_cast<MainComponent*>(getParentComponent())->stopButtonClicked();
             };
             addAndMakeVisible(&stopButton);
 
@@ -292,7 +390,7 @@ private:
 
     struct BodyPanel : public Component
     {
-        BodyPanel()
+        BodyPanel(Music::Metre& metre) : musicMetre(metre)
         {
         }
 
@@ -302,7 +400,55 @@ private:
 
         void resized() override
         {
+            FlexBox fb;
+
+            fb.flexWrap = FlexBox::Wrap::wrap;
+            fb.justifyContent = FlexBox::JustifyContent::flexStart;
+            fb.alignContent = FlexBox::AlignContent::flexStart;
+
+            for (auto& metrePtr : metreList)
+                fb.items.add(FlexItem(*metrePtr).withMinWidth(getWidth() / 4.0f).withMinHeight(getWidth() / 8.0f));
+
+            fb.performLayout(getLocalBounds().toFloat());
         }
+
+        void init()
+        {
+            for (auto it = musicMetre.pulseGroup.begin(); it != musicMetre.pulseGroup.end(); ++it)
+                addAndMakeVisible(**metreList.insert(metreList.end(), std::make_unique<MetreComponent>(it)));
+
+            resized();
+        }
+
+        void metreAddButtonClicked(const Music::Metre::PulseIterator pulseIterator)
+        {
+            auto metrePtr = std::make_unique<MetreComponent>(musicMetre.insertPulse(pulseIterator));
+
+            auto metrePos = metreList.begin();
+            while (metrePos != metreList.end() && (*metrePos)->noteButton->pulseIterator != pulseIterator)
+                ++metrePos;
+
+            addAndMakeVisible(**metreList.insert(metrePos, std::move(metrePtr)));
+            resized();
+        }
+
+        void metreDeleteButtonClicked(const Music::Metre::PulseIterator pulseIterator)
+        {
+            if (!static_cast<MainComponent*>(getParentComponent())->beatAudioSource.isPlaying() && musicMetre.currentPulse != pulseIterator)
+            {
+                auto metrePos = metreList.begin();
+                while (metrePos != metreList.end() && (*metrePos)->noteButton->pulseIterator != pulseIterator)
+                    ++metrePos;
+
+                metreList.erase(metrePos);
+                musicMetre.erasePulse(pulseIterator);
+                resized();
+            }
+        }
+
+        Music::Metre& musicMetre;
+
+        std::list<std::unique_ptr<MetreComponent>> metreList;
     };
 
     AppLookAndFeel appLookAndFeel;

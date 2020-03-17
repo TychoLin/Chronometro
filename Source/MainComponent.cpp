@@ -9,7 +9,8 @@
 #include "MainComponent.h"
 
 //==============================================================================
-MainComponent::MainComponent() : beatAudioSource(musicMetre), headerPanel(musicMetre)
+MainComponent::MainComponent()
+    : beatAudioSource(musicMetre), headerPanel(musicMetre), bodyPanel(musicMetre)
 {
     // Make sure you set the size of the component after
     // you add any child components.
@@ -53,6 +54,7 @@ void MainComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate
 
     // For more details, see the help for AudioProcessor::prepareToPlay()
     beatAudioSource.prepareToPlay(samplesPerBlockExpected, sampleRate);
+    bodyPanel.init(); // initialize after beatAudioSource get sampleRate
 }
 
 void MainComponent::getNextAudioBlock(const AudioSourceChannelInfo& bufferToFill)
