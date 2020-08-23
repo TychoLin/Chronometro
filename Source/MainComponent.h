@@ -261,7 +261,7 @@ private:
             accentButton.setButtonText(">");
             accentButton.onClick = [this] {
                 accentButton.setToggleState(!accentButton.getToggleState(), dontSendNotification);
-                (*noteButton->pulseIterator)->accent = accentButton.getToggleState() ? 0.3f : 0.0f;
+                (*noteButton->pulseIterator)->accent = accentButton.getToggleState() ? 0.5f : 0.0f;
             };
             addAndMakeVisible(&accentButton);
         }

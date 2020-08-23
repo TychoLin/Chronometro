@@ -19,13 +19,44 @@ public:
         tableDelta = baseTableDelta;
     }
 
+    void setTableDelta(float soundFileSampleRate, float sampleRate)
+    {
+        tableDelta = soundFileSampleRate / sampleRate;
+    }
+
     void scaleFrequency(float ratio)
     {
         currentIndex = 0.0f;
         tableDelta = baseTableDelta * ratio;
     }
 
+    void rewindToHead()
+    {
+        currentIndex = 0.0f;
+    }
+
     forcedinline float getNextSample() noexcept
+    {
+        auto currentSample = readLinearInterpolated();
+
+        if ((currentIndex += tableDelta) > tableSize)
+            currentIndex -= tableSize;
+
+        return currentSample;
+    }
+
+    forcedinline float getWavetableSample() noexcept
+    {
+        auto currentSample = readLinearInterpolated();
+
+        if ((currentIndex += tableDelta) > tableSize)
+            return 0.0f;
+
+        return currentSample;
+    }
+
+private:
+    forcedinline float readLinearInterpolated() noexcept
     {
         auto index0 = (unsigned int) currentIndex;
         auto index1 = index0 + 1;
@@ -36,15 +67,9 @@ public:
         auto value0 = table[index0];
         auto value1 = table[index1];
 
-        auto currentSample = value0 + frac * (value1 - value0);
-
-        if ((currentIndex += tableDelta) > tableSize)
-            currentIndex -= tableSize;
-
-        return currentSample;
+        return value0 + frac * (value1 - value0);
     }
 
-private:
     const AudioSampleBuffer& wavetable;
     const int tableSize;
     float currentIndex = 0.0f, baseTableDelta = 0.0f, tableDelta = 0.0f;
@@ -173,8 +198,6 @@ public:
         void init()
         {
             float note4th = convertToSampleLength(NoteValue::quarter);
-            float note8th = note4th * 0.5f;
-            float note16th = note4th * 0.25f;
 
             pulseGroup.push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th));
             pulseGroup.push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th));
@@ -257,11 +280,10 @@ public:
     {
         oscillator.reset(new WavetableOscillator(soundTable));
 
-        // auto frequency = 440.0f;
+        // auto frequency = 1760.0f;
         // oscillator->setFrequency((float) frequency, (float) sampleRate);
 
-        auto frequency = soundFileSampleRate / soundTable.getNumSamples();
-        oscillator->setFrequency((float) frequency, (float) soundFileSampleRate);
+        oscillator->setTableDelta((float) soundFileSampleRate, (float) sampleRate);
 
         musicMetre.audioDeviceSampleRate = sampleRate;
         musicMetre.init();
@@ -309,6 +331,7 @@ public:
         {
             stopped = true;
             tailOff = 1.0;
+            oscillator->rewindToHead();
 
             sendChangeMessage();
         }
@@ -384,19 +407,16 @@ private:
         if (musicMetre.currentPulse == musicMetre.pulseGroup.end())
             return 0.0f;
 
-        if ((*musicMetre.currentPulse)->index == 0)
-            oscillator->scaleFrequency(1 + (*musicMetre.currentPulse)->accent);
-
         if ((*musicMetre.currentPulse)->index < (*musicMetre.currentPulse)->pulseSampleLength)
         {
             float levelSample;
 
             if ((*musicMetre.currentPulse)->hit && tailOff > 0.005f)
             {
-                levelSample = oscillator->getNextSample() * level;
-
-                if (waveform == Waveform::LP_Jam_Block & (*musicMetre.currentPulse)->index > (int) tableSize / (1 + (*musicMetre.currentPulse)->accent))
-                    levelSample = 0.0f;
+                if (waveform == Waveform::LP_Jam_Block)
+                    levelSample = oscillator->getWavetableSample() * level;
+                else
+                    levelSample = oscillator->getNextSample() * level;
 
                 if ((*musicMetre.currentPulse)->index > (*musicMetre.currentPulse)->pulseSampleLength * 0.3f)
                 {
@@ -410,10 +430,12 @@ private:
             }
 
             ++(*musicMetre.currentPulse)->index;
-            return levelSample;
+            auto accent = (*musicMetre.currentPulse)->accent;
+            return (accent > 0.0f) ? std::tanh((1 + std::log(10 * accent + 1)) * levelSample) : levelSample;
         }
 
         (*musicMetre.currentPulse)->index = 0; // reset
+        oscillator->rewindToHead();
         tailOff = 1.0f;
         ++musicMetre.currentPulse;
 
