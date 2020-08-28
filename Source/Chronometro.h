@@ -45,7 +45,7 @@ public:
         return currentSample;
     }
 
-    forcedinline float getWavetableSample() noexcept
+    forcedinline float getNextWavetableSample() noexcept
     {
         auto currentSample = readLinearInterpolated();
 
@@ -302,8 +302,6 @@ public:
             auto* leftBuffer = bufferToFill.buffer->getWritePointer(0, bufferToFill.startSample);
             auto* rightBuffer = bufferToFill.buffer->getWritePointer(1, bufferToFill.startSample);
 
-            bufferToFill.clearActiveBufferRegion();
-
             for (auto sample = 0; sample < bufferToFill.numSamples; ++sample)
             {
                 auto levelSample = getLevelSample();
@@ -376,7 +374,7 @@ private:
                 formatManager.registerBasicFormats();
 
                 auto dir = File::getSpecialLocation(File::SpecialLocationType::invokedExecutableFile);
-                String relativeFilePath = "LP_Jam_Block.ogg";
+                String relativeFilePath = "Resources/LP_Jam_Block.ogg";
 
                 int numTries = 0;
 
@@ -414,9 +412,9 @@ private:
             if ((*musicMetre.currentPulse)->hit && tailOff > 0.005f)
             {
                 if (waveform == Waveform::LP_Jam_Block)
-                    levelSample = oscillator->getWavetableSample() * level;
+                    levelSample = oscillator->getNextWavetableSample();
                 else
-                    levelSample = oscillator->getNextSample() * level;
+                    levelSample = oscillator->getNextSample();
 
                 if ((*musicMetre.currentPulse)->index > (*musicMetre.currentPulse)->pulseSampleLength * 0.3f)
                 {
@@ -449,7 +447,6 @@ private:
 
     // const unsigned int tableSize = 1 << 7;
     const unsigned int tableSize = 1 << 11;
-    float level = 0.3f;
 
     Waveform waveform;
     AudioSampleBuffer soundTable;

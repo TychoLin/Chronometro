@@ -17,12 +17,12 @@ public:
     AppLookAndFeel()
     {
         auto colourScheme = getDarkColourScheme();
-        colourScheme.setUIColour(ColourScheme::defaultText, Colours::teal);
-        colourScheme.setUIColour(ColourScheme::highlightedText, Colours::teal);
-        colourScheme.setUIColour(ColourScheme::widgetBackground, Colours::mediumaquamarine);
+        colourScheme.setUIColour(ColourScheme::defaultText, Colours::lightseagreen);
+        colourScheme.setUIColour(ColourScheme::highlightedText, Colours::lightseagreen);
         colourScheme.setUIColour(ColourScheme::outline, Colours::transparentBlack);
         setColourScheme(colourScheme);
-        setColour(Label::backgroundColourId, Colours::mediumaquamarine);
+        setColour(Label::textColourId, Colours::lightseagreen);
+        setColour(TextButton::buttonColourId, Colours::teal);
         setColour(TextButton::buttonOnColourId, Colours::lemonchiffon);
     }
 
@@ -44,7 +44,7 @@ public:
 
     void paint(Graphics& g) override
     {
-        g.setColour(Colours::teal);
+        g.setColour(Colours::lightseagreen);
 
         auto lineThickness = 1.0f;
 
@@ -82,7 +82,7 @@ public:
 
     void paint(Graphics& g) override
     {
-        g.fillAll(Colours::mediumaquamarine);
+        g.fillAll(Colours::teal);
     }
 
     void resized() override
@@ -240,13 +240,13 @@ private:
 
             addButton.setButtonText("+");
             addButton.onClick = [this] {
-                static_cast<BodyPanel*>(getParentComponent())->metreAddButtonClicked(noteButton->pulseIterator);
+                static_cast<MetreListPanel*>(getParentComponent())->metreAddButtonClicked(noteButton->pulseIterator);
             };
             addAndMakeVisible(&addButton);
 
             deleteButton.setButtonText("-");
             deleteButton.onClick = [this] {
-                static_cast<BodyPanel*>(getParentComponent())->metreDeleteButtonClicked(noteButton->pulseIterator);
+                static_cast<MetreListPanel*>(getParentComponent())->metreDeleteButtonClicked(noteButton->pulseIterator);
             };
             addAndMakeVisible(&deleteButton);
 
@@ -264,10 +264,6 @@ private:
                 (*noteButton->pulseIterator)->accent = accentButton.getToggleState() ? 0.5f : 0.0f;
             };
             addAndMakeVisible(&accentButton);
-        }
-
-        void paint(Graphics& g) override
-        {
         }
 
         void resized() override
@@ -319,21 +315,37 @@ private:
 
             startButton.setButtonText("Start");
             startButton.setClickingTogglesState(true);
-            startButton.onClick = [this] { static_cast<MainComponent*>(getParentComponent())->playButtonClicked(); };
+            startButton.onClick = [this] {
+                if (startButton.getToggleState())
+                {
+                    static_cast<MainComponent*>(getParentComponent())->playButtonClicked();
+                    startButton.setButtonText("Stop");
+                }
+                else
+                {
+                    static_cast<MainComponent*>(getParentComponent())->stopButtonClicked();
+                    startButton.setButtonText("Start");
+                }
+            };
             addAndMakeVisible(&startButton);
 
-            stopButton.setButtonText("Stop");
-            stopButton.onClick = [this] {
-                startButton.setToggleState(false, dontSendNotification);
-                static_cast<MainComponent*>(getParentComponent())->stopButtonClicked();
+            settingButton.setButtonText("Setting");
+            settingButton.setClickingTogglesState(true);
+            settingButton.onClick = [this] {
+                auto* mainComponent = static_cast<MainComponent*>(getParentComponent());
+
+                if (settingButton.getToggleState())
+                {
+                    mainComponent->bodyPanel.setCurrentPanel(&mainComponent->bodyPanel.settingPanel);
+                }
+                else
+                {
+                    mainComponent->bodyPanel.setCurrentPanel(&mainComponent->bodyPanel.metreListPanel);
+                }
             };
-            addAndMakeVisible(&stopButton);
+            addAndMakeVisible(&settingButton);
 
             addAndMakeVisible(&visualBeatRegion);
-        }
-
-        void paint(Graphics& g) override
-        {
         }
 
         void resized() override
@@ -343,39 +355,49 @@ private:
             FlexBox fb1stGroup;
             FlexBox fb2ndGroup;
             FlexBox fbContainer;
-            float margin = 8.0f;
-
-            fb1stGroup.flexDirection = isPortrait ? FlexBox::Direction::column : FlexBox::Direction::row;
-
-            fb1stGroup.items.add(FlexItem(tapButton).withFlex(1));
-            fb1stGroup.items.add(FlexItem(startButton).withFlex(1));
-            fb1stGroup.items.add(FlexItem(stopButton).withFlex(1));
-
-            fb2ndGroup.flexWrap = FlexBox::Wrap::wrap;
-            fb2ndGroup.justifyContent = FlexBox::JustifyContent::flexStart;
-            fb2ndGroup.alignContent = FlexBox::AlignContent::flexStart;
+            float fb1stGroupFelxGrow, fb2ndGroupFlexGrow;
 
             if (isPortrait)
             {
+                fb1stGroup.flexDirection = FlexBox::Direction::column;
+                fb1stGroupFelxGrow = 3.0f;
+
+                fb1stGroup.items.add(FlexItem(tapButton).withMinWidth(154.0f).withMinHeight(66.0f).withFlex(1));
+                fb1stGroup.items.add(FlexItem(startButton).withMinWidth(154.0f).withMinHeight(66.0f).withFlex(1));
+                fb1stGroup.items.add(FlexItem(settingButton).withMinWidth(154.0f).withMinHeight(66.0f).withFlex(1));
+
+                fb2ndGroup.flexDirection = FlexBox::Direction::column;
+                fb2ndGroupFlexGrow = 2.0f;
+
                 FlexItem::Margin BPMLabelMargin;
-                BPMLabelMargin.bottom = margin;
-                fb2ndGroup.items.add(FlexItem(BPMLabel).withMinWidth(getWidth()).withMinHeight(getWidth() * 0.5f).withMargin(BPMLabelMargin));
-                fb2ndGroup.items.add(FlexItem(visualBeatRegion).withMinWidth(getWidth()).withMinHeight(getWidth() * 0.5f));
+                BPMLabelMargin.bottom = 1.0f;
+                fb2ndGroup.items.add(FlexItem(BPMLabel).withMinWidth(154.0f).withMinHeight(66.0f).withMargin(BPMLabelMargin).withFlex(1));
+                fb2ndGroup.items.add(FlexItem(visualBeatRegion).withMinWidth(154.0f).withMinHeight(66.0f).withFlex(1));
             }
             else
             {
+                fb1stGroup.flexDirection = FlexBox::Direction::row;
+                fb1stGroupFelxGrow = 1.0f;
+
+                fb1stGroup.items.add(FlexItem(tapButton).withMinWidth(114.0f).withMinHeight(56.0f).withFlex(1));
+                fb1stGroup.items.add(FlexItem(startButton).withMinWidth(114.0f).withMinHeight(56.0f).withFlex(1));
+                fb1stGroup.items.add(FlexItem(settingButton).withMinWidth(114.0f).withMinHeight(56.0f).withFlex(1));
+
+                fb2ndGroup.flexDirection = FlexBox::Direction::row;
+                fb2ndGroupFlexGrow = 1.0f;
+
                 FlexItem::Margin BPMLabelMargin;
-                BPMLabelMargin.right = margin;
-                fb2ndGroup.items.add(FlexItem(BPMLabel).withMinWidth(getHeight()).withMinHeight(getHeight() * 0.5f).withMargin(BPMLabelMargin));
-                fb2ndGroup.items.add(FlexItem(visualBeatRegion).withMinWidth(getHeight()).withMinHeight(getHeight() * 0.5f));
+                BPMLabelMargin.right = 1.0f;
+                fb2ndGroup.items.add(FlexItem(BPMLabel).withMinWidth(114.0f).withMinHeight(56.0f).withMargin(BPMLabelMargin).withFlex(1));
+                fb2ndGroup.items.add(FlexItem(visualBeatRegion).withMinWidth(114.0f).withMinHeight(56.0f).withFlex(1));
             }
 
             fbContainer.flexDirection = FlexBox::Direction::column;
 
             FlexItem::Margin fb1stGroupMargin;
-            fb1stGroupMargin.bottom = margin;
-            fbContainer.items.addArray({ FlexItem(fb1stGroup).withFlex(1).withMargin(fb1stGroupMargin),
-                                         FlexItem(fb2ndGroup).withFlex(1) });
+            fb1stGroupMargin.bottom = 8.0f;
+            fbContainer.items.addArray({ FlexItem(fb1stGroup).withFlex(fb1stGroupFelxGrow).withMargin(fb1stGroupMargin),
+                                         FlexItem(fb2ndGroup).withFlex(fb2ndGroupFlexGrow) });
             fbContainer.performLayout(getLocalBounds().toFloat());
         }
 
@@ -384,17 +406,13 @@ private:
         TextButton tapButton;
         BPMLabel BPMLabel;
         TextButton startButton;
-        TextButton stopButton;
+        TextButton settingButton;
         VisualBeatComponent visualBeatRegion;
     };
 
-    struct BodyPanel : public Component
+    struct MetreListPanel : public Component
     {
-        BodyPanel(Music::Metre& metre) : musicMetre(metre)
-        {
-        }
-
-        void paint(Graphics& g) override
+        MetreListPanel(Music::Metre& metre) : musicMetre(metre)
         {
         }
 
@@ -451,6 +469,126 @@ private:
         std::list<std::unique_ptr<MetreComponent>> metreList;
     };
 
+    struct SettingPanel : public Component
+    {
+        SettingPanel()
+        {
+            addAndMakeVisible(&wrapDecibelSlider);
+        }
+
+        void resized() override
+        {
+            auto isPortrait = getHeight() > getWidth();
+
+            FlexBox fb;
+
+            fb.flexDirection = FlexBox::Direction::column;
+
+            fb.items.add(FlexItem(wrapDecibelSlider).withFlex(0, 1, isPortrait ? getHeight() / 10.0f : getHeight() / 5.0f));
+
+            fb.performLayout(getLocalBounds().toFloat());
+        }
+
+        class DecibelSlider : public Slider
+        {
+        public:
+            DecibelSlider() {}
+
+            double getValueFromText(const String& text) override
+            {
+                auto minusInfinitydB = -100.0;
+
+                auto decibelText = text.upToFirstOccurrenceOf("dB", false, false).trim();
+
+                return decibelText.equalsIgnoreCase("-INF") ? minusInfinitydB
+                                                            : decibelText.getDoubleValue();
+            }
+
+            String getTextFromValue(double value) override { return Decibels::toString(value); }
+
+        private:
+            JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(DecibelSlider)
+        };
+
+        struct WrapDecibelSlider : public Component, public Slider::Listener
+        {
+            WrapDecibelSlider()
+            {
+                decibelSlider.setRange(-60, 0);
+                decibelSlider.setSkewFactorFromMidPoint(-10);
+                decibelSlider.setTextBoxStyle(Slider::TextBoxRight, false, 100, 20);
+                decibelSlider.setValue(Decibels::gainToDecibels(currentLevel));
+                decibelSlider.addListener(this);
+                addAndMakeVisible(&decibelSlider);
+
+                decibelLabel.setText("Gain", dontSendNotification);
+                addAndMakeVisible(&decibelLabel);
+            }
+
+            void resized() override
+            {
+                juce::FlexBox fb;
+
+                juce::FlexItem left(getWidth() * 0.2f, getHeight(), decibelLabel);
+                juce::FlexItem right(getWidth() * 0.8f, getHeight(), decibelSlider);
+
+                fb.items.addArray({ left, right });
+                fb.performLayout(getLocalBounds().toFloat());
+            }
+
+            void sliderValueChanged(Slider* slider) override
+            {
+                targetLevel = Decibels::decibelsToGain((float) decibelSlider.getValue());
+            }
+
+            DecibelSlider decibelSlider;
+            Label decibelLabel;
+            float currentLevel = 0.3f, targetLevel = 0.3f;
+        };
+
+        WrapDecibelSlider wrapDecibelSlider;
+    };
+
+    struct BodyPanel : public Component
+    {
+        BodyPanel(Music::Metre& metre) : metreListPanel(metre)
+        {
+            addAndMakeVisible(&metreListPanel);
+        }
+
+        void resized() override
+        {
+            auto bounds = getLocalBounds();
+            metreListPanel.setBounds(bounds);
+            settingPanel.setBounds(bounds);
+        }
+
+        void setCurrentPanel(Component* panelToUse)
+        {
+            if (panelToUse != currentPanel)
+            {
+                if (currentPanel != nullptr)
+                {
+                    currentPanel->setVisible(false);
+                    removeChildComponent(currentPanel);
+                }
+
+                currentPanel = panelToUse;
+
+                if (panelToUse != nullptr)
+                {
+                    addChildComponent(panelToUse);
+                    panelToUse->setVisible(true);
+                    panelToUse->toFront(true);
+                }
+            }
+        }
+
+        MetreListPanel metreListPanel;
+        SettingPanel settingPanel;
+        Component* currentPanel = &metreListPanel;
+    };
+
     AppLookAndFeel appLookAndFeel;
 
     Music::Metre musicMetre;
@@ -460,6 +598,9 @@ private:
 
     HeaderPanel headerPanel;
     BodyPanel bodyPanel;
+
+    float& currentLevel = bodyPanel.settingPanel.wrapDecibelSlider.currentLevel;
+    float& targetLevel = bodyPanel.settingPanel.wrapDecibelSlider.targetLevel;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };

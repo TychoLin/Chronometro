@@ -21,7 +21,8 @@ MainComponent::MainComponent()
 
     beatAudioSource.addChangeListener(this);
 
-    setSize(640, 360);
+    // setSize(640, 360);
+    setSize(360, 640);
 
     // Some platforms require permissions to open input channels so request that here
     if (RuntimePermissions::isRequired(RuntimePermissions::recordAudio)
@@ -54,7 +55,7 @@ void MainComponent::prepareToPlay(int samplesPerBlockExpected, double sampleRate
 
     // For more details, see the help for AudioProcessor::prepareToPlay()
     beatAudioSource.prepareToPlay(samplesPerBlockExpected, sampleRate);
-    bodyPanel.init(); // initialize after beatAudioSource get sampleRate
+    bodyPanel.metreListPanel.init(); // initialize after beatAudioSource get sampleRate
 }
 
 void MainComponent::getNextAudioBlock(const AudioSourceChannelInfo& bufferToFill)
@@ -67,6 +68,10 @@ void MainComponent::getNextAudioBlock(const AudioSourceChannelInfo& bufferToFill
     // (to prevent the output of random noise)
     // bufferToFill.clearActiveBufferRegion();
     beatAudioSource.getNextAudioBlock(bufferToFill);
+
+    auto localTargetLevel = targetLevel;
+    bufferToFill.buffer->applyGainRamp(bufferToFill.startSample, bufferToFill.numSamples, currentLevel, localTargetLevel);
+    currentLevel = localTargetLevel;
 }
 
 void MainComponent::releaseResources()
@@ -105,8 +110,8 @@ void MainComponent::resized()
 
         fbGroup.flexDirection = FlexBox::Direction::column;
 
-        FlexItem header(width, height * 0.25f, headerPanel);
-        FlexItem body(width, height * 0.75f, bodyPanel);
+        FlexItem header(width, 123.2f, headerPanel);
+        FlexItem body(width, height * 0.8f, bodyPanel);
 
         FlexItem::Margin headerPanelMargin;
         headerPanelMargin.bottom = margin;
