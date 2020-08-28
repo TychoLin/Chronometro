@@ -1,3 +1,6 @@
 [submodule "juce-cmake"]
 	path = juce-cmake
 	url = git@github.com:remymuller/juce-cmake.git
+[submodule "googletest"]
+	path = googletest
+	url = git@github.com:google/googletest.git
