@@ -176,9 +176,10 @@ private:
         {
             headerPanel.visualBeatRegion.startTimer(static_cast<int>(musicMetre.getIntervalPerBeat() * 1000));
             changeState(Starting);
+
+            for (auto& beatPtr : bodyPanel.metreListPanel.beatList)
+                beatPtr->pulseList.front()->noteButton->setVisible(false);
         }
-        else
-            headerPanel.startButton.setToggleState(true, dontSendNotification);
     }
 
     void stopButtonClicked()
@@ -187,6 +188,9 @@ private:
         {
             headerPanel.visualBeatRegion.stopTimer();
             changeState(Stopping);
+
+            for (auto& beatPtr : bodyPanel.metreListPanel.beatList)
+                beatPtr->pulseList.front()->noteButton->setVisible(true);
         }
     }
 
@@ -202,10 +206,10 @@ private:
     class NoteButton : public TextButton
     {
     public:
-        NoteButton(const Music::Metre::PulseIterator it) : pulseIterator(it)
+        NoteButton(Music::Pulse& pulseToUse) : pulse(pulseToUse)
         {
             state = noteValueVector.begin();
-            while (state != noteValueVector.end() && *state != (*it)->noteValue)
+            while (state != noteValueVector.end() && *state != pulse.noteValue)
                 ++state;
 
             setButtonText(String((int) *state));
@@ -214,12 +218,13 @@ private:
                     state = noteValueVector.begin();
 
                 setButtonText(String((int) *state));
-                (*pulseIterator)->noteValue = *state;
-                (*pulseIterator)->pulseChangeBroadcaster->sendChangeMessage();
+                pulse.noteValue = *state;
+                pulse.pulseChangeBroadcaster->sendChangeMessage();
+                static_cast<BeatComponent*>(getParentComponent()->getParentComponent())->resized();
             };
         }
 
-        const Music::Metre::PulseIterator pulseIterator;
+        Music::Pulse& pulse;
 
     private:
         std::vector<Music::NoteValue>::iterator state;
@@ -231,37 +236,27 @@ private:
         };
     };
 
-    struct MetreComponent : public Component
+    struct PulseComponent : public Component
     {
-        MetreComponent(const Music::Metre::PulseIterator it)
+        PulseComponent(Music::Pulse& pulseToUse, bool shouldUseNoteButton = false) : pulse(pulseToUse)
         {
-            noteButton.reset(new NoteButton(it));
-            addAndMakeVisible(noteButton.get());
+            if (shouldUseNoteButton)
+            {
+                noteButton.reset(new NoteButton(pulse));
+                addAndMakeVisible(noteButton.get());
+            }
 
-            addButton.setButtonText("+");
-            addButton.onClick = [this] {
-                static_cast<MetreListPanel*>(getParentComponent())->metreAddButtonClicked(noteButton->pulseIterator);
-            };
-            addAndMakeVisible(&addButton);
-
-            deleteButton.setButtonText("-");
-            deleteButton.onClick = [this] {
-                static_cast<MetreListPanel*>(getParentComponent())->metreDeleteButtonClicked(noteButton->pulseIterator);
-            };
-            addAndMakeVisible(&deleteButton);
-
-            hitButton.setButtonText("h");
-            hitButton.setToggleState((*noteButton->pulseIterator)->hit, dontSendNotification);
+            hitButton.setToggleState(pulse.hit, dontSendNotification);
             hitButton.onClick = [this] {
                 hitButton.setToggleState(!hitButton.getToggleState(), dontSendNotification);
-                (*noteButton->pulseIterator)->hit = hitButton.getToggleState();
+                pulse.hit = hitButton.getToggleState();
             };
             addAndMakeVisible(&hitButton);
 
             accentButton.setButtonText(">");
             accentButton.onClick = [this] {
                 accentButton.setToggleState(!accentButton.getToggleState(), dontSendNotification);
-                (*noteButton->pulseIterator)->accent = accentButton.getToggleState() ? 0.5f : 0.0f;
+                pulse.accent = accentButton.getToggleState() ? 0.5f : 0.0f;
             };
             addAndMakeVisible(&accentButton);
         }
@@ -271,26 +266,61 @@ private:
             FlexBox fbGroup;
             FlexBox fb;
 
-            fbGroup.items.add(FlexItem(addButton).withFlex(1));
-            fbGroup.items.add(FlexItem(deleteButton).withFlex(1));
-            fbGroup.items.add(FlexItem(hitButton).withFlex(1));
+            fbGroup.items.add(FlexItem(*noteButton).withFlex(1));
             fbGroup.items.add(FlexItem(accentButton).withFlex(1));
 
-            fb.flexWrap = FlexBox::Wrap::wrap;
-            fb.justifyContent = FlexBox::JustifyContent::flexStart;
-            fb.alignContent = FlexBox::AlignContent::flexStart;
+            fb.flexDirection = FlexBox::Direction::column;
 
             fb.items.add(FlexItem(fbGroup).withMinWidth(getWidth()).withMinHeight(getHeight() / 3.0f));
-            fb.items.add(FlexItem(*noteButton).withMinWidth(getWidth()).withMinHeight(getHeight() * 2.0f / 3.0f));
+            fb.items.add(FlexItem(hitButton).withMinWidth(getWidth()).withMinHeight(getHeight() * 2.0f / 3.0f));
 
             fb.performLayout(getLocalBounds().toFloat());
         }
 
+        Music::Pulse& pulse;
+
         std::unique_ptr<NoteButton> noteButton;
-        TextButton addButton;
-        TextButton deleteButton;
         TextButton hitButton;
         TextButton accentButton;
+    };
+
+    struct BeatComponent : public Component
+    {
+        BeatComponent(Music::Beat& beatToUse) : beat(beatToUse)
+        {
+            addAndMakeVisible(**pulseList.insert(pulseList.end(), std::make_unique<PulseComponent>(*beat[0], true)));
+            addChildComponent(**pulseList.insert(pulseList.end(), std::make_unique<PulseComponent>(*beat[1])));
+            addChildComponent(**pulseList.insert(pulseList.end(), std::make_unique<PulseComponent>(*beat[2])));
+            addChildComponent(**pulseList.insert(pulseList.end(), std::make_unique<PulseComponent>(*beat[3])));
+        }
+
+        void resized() override
+        {
+            FlexBox fb;
+
+            fb.flexDirection = FlexBox::Direction::row;
+
+            int n = (int) beat[0]->noteValue / (int) Music::Metre::baseNoteValue;
+            auto last = pulseList.begin();
+
+            while (n-- > 0)
+                ++last;
+
+            for (auto it = pulseList.begin(); it != last; ++it)
+            {
+                (**it).setVisible(true);
+                fb.items.add(FlexItem(**it).withMinWidth(86.0f).withMinHeight(86.0f * 2.0f / 3.0f).withFlex(1));
+            }
+
+            for (auto it = last; it != pulseList.end(); ++it)
+                (**it).setVisible(false);
+
+            fb.performLayout(getLocalBounds().toFloat());
+        }
+
+        Music::Beat& beat;
+
+        std::list<std::unique_ptr<PulseComponent>> pulseList;
     };
 
     struct HeaderPanel : public Component
@@ -424,49 +454,32 @@ private:
             fb.justifyContent = FlexBox::JustifyContent::flexStart;
             fb.alignContent = FlexBox::AlignContent::flexStart;
 
-            for (auto& metrePtr : metreList)
-                fb.items.add(FlexItem(*metrePtr).withMinWidth(getWidth() / 4.0f).withMinHeight(getWidth() / 8.0f));
+            FlexItem::Margin beatMargin;
+            beatMargin.bottom = 8.0f;
+
+            for (auto& metrePtr : beatList)
+                fb.items.add(FlexItem(*metrePtr)
+                                 .withWidth(getWidth())
+                                 .withHeight(getWidth() / 6.0f)
+                                 .withMinHeight(86.0f * 2.0f / 3.0f)
+                                 .withMargin(beatMargin));
 
             fb.performLayout(getLocalBounds().toFloat());
         }
 
         void init()
         {
-            for (auto it = musicMetre.pulseGroup.begin(); it != musicMetre.pulseGroup.end(); ++it)
-                addAndMakeVisible(**metreList.insert(metreList.end(), std::make_unique<MetreComponent>(it)));
+            auto last = --musicMetre.beatList.end();
+
+            for (auto it = musicMetre.beatList.begin(); it != last; ++it)
+                addAndMakeVisible(**beatList.insert(beatList.end(), std::make_unique<BeatComponent>(*it)));
 
             resized();
-        }
-
-        void metreAddButtonClicked(const Music::Metre::PulseIterator pulseIterator)
-        {
-            auto metrePtr = std::make_unique<MetreComponent>(musicMetre.insertPulse(pulseIterator));
-
-            auto metrePos = metreList.begin();
-            while (metrePos != metreList.end() && (*metrePos)->noteButton->pulseIterator != pulseIterator)
-                ++metrePos;
-
-            addAndMakeVisible(**metreList.insert(metrePos, std::move(metrePtr)));
-            resized();
-        }
-
-        void metreDeleteButtonClicked(const Music::Metre::PulseIterator pulseIterator)
-        {
-            if (!static_cast<MainComponent*>(getParentComponent())->beatAudioSource.isPlaying() && musicMetre.currentPulse != pulseIterator)
-            {
-                auto metrePos = metreList.begin();
-                while (metrePos != metreList.end() && (*metrePos)->noteButton->pulseIterator != pulseIterator)
-                    ++metrePos;
-
-                metreList.erase(metrePos);
-                musicMetre.erasePulse(pulseIterator);
-                resized();
-            }
         }
 
         Music::Metre& musicMetre;
 
-        std::list<std::unique_ptr<MetreComponent>> metreList;
+        std::list<std::unique_ptr<BeatComponent>> beatList;
     };
 
     struct SettingPanel : public Component

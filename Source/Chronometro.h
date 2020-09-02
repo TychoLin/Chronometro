@@ -104,21 +104,18 @@ public:
         Pulse* owner;
     };
 
+    using Beat = std::vector<std::unique_ptr<Pulse>>;
+
     struct Pulse
     {
-        Pulse()
-            : index(0),
-              hit(true),
-              accent(0.0f),
-              noteValue(NoteValue::quarter)
-        {
-        }
-
-        Pulse(bool hit, float accent, NoteValue noteValue, float timeLength)
-            : index(0), hit(hit), noteValue(noteValue), pulseSampleLength(timeLength)
+        Pulse(bool hit, float accent, NoteValue noteValue, float timeLength, Beat& owner)
+            : index(0), hit(hit), noteValue(noteValue), pulseSampleLength(timeLength), owner(owner)
         {
             this->accent = jlimit(0.0f, 1.0f, accent);
         }
+
+        Pulse(const Pulse&) = delete;
+        Pulse& operator=(const Pulse&) = delete;
 
         int index;
         bool hit;
@@ -126,14 +123,52 @@ public:
         NoteValue noteValue;
         float pulseSampleLength;
 
-        std::shared_ptr<PulseChangeBroadcaster> pulseChangeBroadcaster = std::make_shared<PulseChangeBroadcaster>(this);
+        std::unique_ptr<PulseChangeBroadcaster> pulseChangeBroadcaster = std::make_unique<PulseChangeBroadcaster>(this);
+        Beat& owner;
+    };
+
+    class PulseIterator
+    {
+    public:
+        PulseIterator() {}
+
+        PulseIterator(std::list<Beat>::iterator bp, Beat::iterator pp) : beatPos(bp), pulsePos(pp) {}
+
+        Pulse& operator*() const { return **pulsePos; }
+
+        PulseIterator& operator++()
+        {
+            auto beatEnd = (*beatPos).begin() + (int) (*pulsePos)->noteValue / (int) Metre::baseNoteValue;
+
+            ++pulsePos;
+
+            if (pulsePos == beatEnd)
+            {
+                ++beatPos;
+                pulsePos = (*beatPos).begin();
+            }
+
+            return *this;
+        }
+
+        bool operator==(const PulseIterator& other) const
+        {
+            return beatPos == other.beatPos && pulsePos == other.pulsePos;
+        }
+
+        bool operator!=(const PulseIterator& other) const
+        {
+            return !(*this == other);
+        }
+
+    private:
+        std::list<Beat>::iterator beatPos;
+        Beat::iterator pulsePos;
     };
 
     class Metre : public Timer, public ChangeListener
     {
     public:
-        using PulseIterator = std::list<std::unique_ptr<Pulse>>::iterator;
-
         Metre()
         {
         }
@@ -199,26 +234,37 @@ public:
         {
             float note4th = convertToSampleLength(NoteValue::quarter);
 
-            pulseGroup.push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th));
-            pulseGroup.push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th));
-            pulseGroup.push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th));
-            pulseGroup.push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th));
+            beatList.push_back(Beat {});
+            beatList.push_back(Beat {});
+            beatList.push_back(Beat {});
+            beatList.push_back(Beat {});
+            beatList.push_back(Beat {}); // not used
 
-            for (auto& pulse : pulseGroup)
-                pulse->pulseChangeBroadcaster->addChangeListener(this);
+            auto last = --beatList.end();
 
-            currentPulse = pulseGroup.begin();
-        }
-
-        void reset()
-        {
-            for (auto& pulse : pulseGroup)
+            for (auto it = beatList.begin(); it != last; ++it)
             {
-                pulse->index = 0;
-                pulse->pulseSampleLength = convertToSampleLength(pulse->noteValue);
+                it->push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th, *it));
+                it->push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th, *it));
+                it->push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th, *it));
+                it->push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th, *it));
+
+                for (auto& pulse : *it)
+                    pulse->pulseChangeBroadcaster->addChangeListener(this);
             }
 
-            currentPulse = pulseGroup.begin();
+            currentPulse = begin();
+        }
+
+        void update()
+        {
+            for (auto& pulse : *this)
+            {
+                pulse.index = 0;
+                pulse.pulseSampleLength = convertToSampleLength(pulse.noteValue);
+            }
+
+            currentPulse = begin();
         }
 
         void changeListenerCallback(ChangeBroadcaster* source) override
@@ -227,7 +273,12 @@ public:
 
             // update pulseSampleLength
             auto* pulseChangeBroadcaster = static_cast<PulseChangeBroadcaster*>(source);
-            pulseChangeBroadcaster->owner->pulseSampleLength = convertToSampleLength(pulseChangeBroadcaster->owner->noteValue);
+
+            for (auto& pulse : pulseChangeBroadcaster->owner->owner)
+            {
+                pulse->noteValue = pulseChangeBroadcaster->owner->noteValue;
+                pulse->pulseSampleLength = convertToSampleLength(pulseChangeBroadcaster->owner->noteValue);
+            }
         }
 
         float convertToSampleLength(NoteValue noteValue)
@@ -235,32 +286,27 @@ public:
             return getSampleRatePerBeat() * (float) baseNoteValue / (float) noteValue;
         }
 
-        PulseIterator insertPulse(PulseIterator pos)
+        PulseIterator begin()
         {
-            auto pulsePtr = std::make_unique<Pulse>();
-            pulsePtr->pulseSampleLength = convertToSampleLength(pulsePtr->noteValue);
-            pulsePtr->pulseChangeBroadcaster->addChangeListener(this);
-            auto newPulseIterator = pulseGroup.insert(pos, std::move(pulsePtr));
-
-            if (newPulseIterator == pulseGroup.begin())
-                currentPulse = newPulseIterator;
-
-            return newPulseIterator;
+            return PulseIterator(beatList.begin(), (*beatList.begin()).begin());
         }
 
-        PulseIterator erasePulse(PulseIterator pos)
+        PulseIterator end()
         {
-            return pulseGroup.erase(pos);
+            auto last = beatList.end();
+            --last;
+            return PulseIterator(last, (*last).end());
         }
 
         double audioDeviceSampleRate;
 
-        std::list<std::unique_ptr<Pulse>> pulseGroup;
+        std::list<Beat> beatList;
         PulseIterator currentPulse;
+
+        inline static NoteValue baseNoteValue = NoteValue::quarter;
 
     private:
         float BPM = 120.0f;
-        NoteValue baseNoteValue = NoteValue::quarter;
         std::vector<double> tapTimes;
     };
 
@@ -317,7 +363,7 @@ public:
         if (stopped)
         {
             stopped = false;
-            musicMetre.reset();
+            musicMetre.update();
 
             sendChangeMessage();
         }
@@ -402,21 +448,21 @@ private:
 
     float getLevelSample()
     {
-        if (musicMetre.currentPulse == musicMetre.pulseGroup.end())
+        if (musicMetre.currentPulse == musicMetre.end())
             return 0.0f;
 
-        if ((*musicMetre.currentPulse)->index < (*musicMetre.currentPulse)->pulseSampleLength)
+        if ((*musicMetre.currentPulse).index < (*musicMetre.currentPulse).pulseSampleLength)
         {
             float levelSample;
 
-            if ((*musicMetre.currentPulse)->hit && tailOff > 0.005f)
+            if ((*musicMetre.currentPulse).hit && tailOff > 0.005f)
             {
                 if (waveform == Waveform::LP_Jam_Block)
                     levelSample = oscillator->getNextWavetableSample();
                 else
                     levelSample = oscillator->getNextSample();
 
-                if ((*musicMetre.currentPulse)->index > (*musicMetre.currentPulse)->pulseSampleLength * 0.3f)
+                if ((*musicMetre.currentPulse).index > (*musicMetre.currentPulse).pulseSampleLength * 0.3f)
                 {
                     levelSample *= tailOff;
                     tailOff *= 0.99f;
@@ -427,18 +473,18 @@ private:
                 levelSample = 0.0f;
             }
 
-            ++(*musicMetre.currentPulse)->index;
-            auto accent = (*musicMetre.currentPulse)->accent;
+            ++(*musicMetre.currentPulse).index;
+            auto accent = (*musicMetre.currentPulse).accent;
             return (accent > 0.0f) ? std::tanh((1 + std::log(10 * accent + 1)) * levelSample) : levelSample;
         }
 
-        (*musicMetre.currentPulse)->index = 0; // reset
+        (*musicMetre.currentPulse).index = 0; // reset
         oscillator->rewindToHead();
         tailOff = 1.0f;
         ++musicMetre.currentPulse;
 
-        if (musicMetre.currentPulse == musicMetre.pulseGroup.end())
-            musicMetre.currentPulse = musicMetre.pulseGroup.begin();
+        if (musicMetre.currentPulse == musicMetre.end())
+            musicMetre.currentPulse = musicMetre.begin();
 
         return getLevelSample();
     }
