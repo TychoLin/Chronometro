@@ -75,6 +75,8 @@ private:
     float currentIndex = 0.0f, baseTableDelta = 0.0f, tableDelta = 0.0f;
 };
 
+class BeatAudioSource;
+
 class Music
 {
 public:
@@ -88,28 +90,17 @@ public:
         sixteenth = 16
     };
 
-    struct Pulse;
-
-    struct PulseChangeBroadcaster : public ChangeBroadcaster
-    {
-        PulseChangeBroadcaster(Pulse* owner) : owner(owner)
-        {
-        }
-
-        ~PulseChangeBroadcaster() override
-        {
-            removeAllChangeListeners();
-        }
-
-        Pulse* owner;
-    };
+    class Pulse;
+    class PulseIterator;
+    class Metre;
 
     using Beat = std::vector<std::unique_ptr<Pulse>>;
 
-    struct Pulse
+    class Pulse
     {
+    public:
         Pulse(bool hit, float accent, NoteValue noteValue, float timeLength, Beat& owner)
-            : index(0), hit(hit), noteValue(noteValue), pulseSampleLength(timeLength), owner(owner)
+            : index(0), hit(hit), noteValue(noteValue), sampleLength(timeLength), owner(owner)
         {
             this->accent = jlimit(0.0f, 1.0f, accent);
         }
@@ -117,20 +108,39 @@ public:
         Pulse(const Pulse&) = delete;
         Pulse& operator=(const Pulse&) = delete;
 
+        bool getHit() { return hit; }
+        void setHit(bool hitToUse) { hit = hitToUse; }
+        float getAccent() { return accent; }
+        void setAccent(float accentToUse) { accent = accentToUse; }
+        NoteValue getNoteValue() { return noteValue; }
+        void setNoteValue(NoteValue noteValueToUse)
+        {
+            for (auto& pulse : owner)
+            {
+                auto localSampleLength = Metre::convertToSampleLength(noteValueToUse);
+                pulse->noteValue = noteValueToUse;
+                pulse->sampleLength = localSampleLength;
+            }
+        }
+
+        friend class PulseIterator;
+        friend class Metre;
+        friend class ::BeatAudioSource;
+
+    private:
         int index;
         bool hit;
         float accent;
         NoteValue noteValue;
-        float pulseSampleLength;
+        float sampleLength;
 
-        std::unique_ptr<PulseChangeBroadcaster> pulseChangeBroadcaster = std::make_unique<PulseChangeBroadcaster>(this);
         Beat& owner;
     };
 
     class PulseIterator
     {
     public:
-        PulseIterator() {}
+        PulseIterator() = default;
 
         PulseIterator(std::list<Beat>::iterator bp, Beat::iterator pp) : beatPos(bp), pulsePos(pp) {}
 
@@ -138,15 +148,23 @@ public:
 
         PulseIterator& operator++()
         {
-            auto beatEnd = (*beatPos).begin() + (int) (*pulsePos)->noteValue / (int) Metre::baseNoteValue;
-
-            ++pulsePos;
-
-            if (pulsePos == beatEnd)
+            if (doesPulseIteratorLock.exchange(true, std::memory_order_release) == false
+                && doesNoteButtonLock.load(std::memory_order_acquire) == false)
             {
-                ++beatPos;
-                pulsePos = (*beatPos).begin();
+                // data race when beatEnd is before pulsePos.
+                // At that moment, pulsePos will access wrong memory location.
+                auto beatEnd = (*beatPos).begin() + (int) (*pulsePos)->noteValue / (int) Metre::baseNoteValue;
+
+                ++pulsePos;
+
+                if (pulsePos >= beatEnd)
+                {
+                    ++beatPos;
+                    pulsePos = (*beatPos).begin();
+                }
             }
+
+            doesPulseIteratorLock.store(false, std::memory_order_release);
 
             return *this;
         }
@@ -161,12 +179,15 @@ public:
             return !(*this == other);
         }
 
+        inline static std::atomic<bool> doesPulseIteratorLock { false };
+        inline static std::atomic<bool> doesNoteButtonLock { false };
+
     private:
         std::list<Beat>::iterator beatPos;
         Beat::iterator pulsePos;
     };
 
-    class Metre : public Timer, public ChangeListener
+    class Metre : public Timer
     {
     public:
         Metre()
@@ -188,12 +209,12 @@ public:
             return BPM;
         }
 
-        float getIntervalPerBeat()
+        static float getIntervalPerBeat()
         {
             return 60.0f / BPM;
         }
 
-        double getSampleRatePerBeat()
+        static double getSampleRatePerBeat()
         {
             return audioDeviceSampleRate * getIntervalPerBeat();
         }
@@ -248,9 +269,6 @@ public:
                 it->push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th, *it));
                 it->push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th, *it));
                 it->push_back(std::make_unique<Pulse>(true, 0.0f, NoteValue::quarter, note4th, *it));
-
-                for (auto& pulse : *it)
-                    pulse->pulseChangeBroadcaster->addChangeListener(this);
             }
 
             currentPulse = begin();
@@ -261,27 +279,13 @@ public:
             for (auto& pulse : *this)
             {
                 pulse.index = 0;
-                pulse.pulseSampleLength = convertToSampleLength(pulse.noteValue);
+                pulse.sampleLength = convertToSampleLength(pulse.noteValue);
             }
 
             currentPulse = begin();
         }
 
-        void changeListenerCallback(ChangeBroadcaster* source) override
-        {
-            jassert(static_cast<PulseChangeBroadcaster*>(source) != nullptr);
-
-            // update pulseSampleLength
-            auto* pulseChangeBroadcaster = static_cast<PulseChangeBroadcaster*>(source);
-
-            for (auto& pulse : pulseChangeBroadcaster->owner->owner)
-            {
-                pulse->noteValue = pulseChangeBroadcaster->owner->noteValue;
-                pulse->pulseSampleLength = convertToSampleLength(pulseChangeBroadcaster->owner->noteValue);
-            }
-        }
-
-        float convertToSampleLength(NoteValue noteValue)
+        static float convertToSampleLength(NoteValue noteValue)
         {
             return getSampleRatePerBeat() * (float) baseNoteValue / (float) noteValue;
         }
@@ -298,7 +302,7 @@ public:
             return PulseIterator(last, (*last).end());
         }
 
-        double audioDeviceSampleRate;
+        inline static double audioDeviceSampleRate { 44100.0 };
 
         std::list<Beat> beatList;
         PulseIterator currentPulse;
@@ -306,7 +310,7 @@ public:
         inline static NoteValue baseNoteValue = NoteValue::quarter;
 
     private:
-        float BPM = 120.0f;
+        inline static float BPM { 120.0f };
         std::vector<double> tapTimes;
     };
 
@@ -451,7 +455,7 @@ private:
         if (musicMetre.currentPulse == musicMetre.end())
             return 0.0f;
 
-        if ((*musicMetre.currentPulse).index < (*musicMetre.currentPulse).pulseSampleLength)
+        if ((*musicMetre.currentPulse).index < (*musicMetre.currentPulse).sampleLength)
         {
             float levelSample;
 
@@ -462,7 +466,7 @@ private:
                 else
                     levelSample = oscillator->getNextSample();
 
-                if ((*musicMetre.currentPulse).index > (*musicMetre.currentPulse).pulseSampleLength * 0.3f)
+                if ((*musicMetre.currentPulse).index > (*musicMetre.currentPulse).sampleLength * 0.3f)
                 {
                     levelSample *= tailOff;
                     tailOff *= 0.99f;

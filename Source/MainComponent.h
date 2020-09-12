@@ -176,9 +176,6 @@ private:
         {
             headerPanel.visualBeatRegion.startTimer(static_cast<int>(musicMetre.getIntervalPerBeat() * 1000));
             changeState(Starting);
-
-            for (auto& beatPtr : bodyPanel.metreListPanel.beatList)
-                beatPtr->pulseList.front()->noteButton->setVisible(false);
         }
     }
 
@@ -188,9 +185,6 @@ private:
         {
             headerPanel.visualBeatRegion.stopTimer();
             changeState(Stopping);
-
-            for (auto& beatPtr : bodyPanel.metreListPanel.beatList)
-                beatPtr->pulseList.front()->noteButton->setVisible(true);
         }
     }
 
@@ -209,17 +203,23 @@ private:
         NoteButton(Music::Pulse& pulseToUse) : pulse(pulseToUse)
         {
             state = noteValueVector.begin();
-            while (state != noteValueVector.end() && *state != pulse.noteValue)
+            while (state != noteValueVector.end() && *state != pulse.getNoteValue())
                 ++state;
 
             setButtonText(String((int) *state));
             onClick = [this] {
-                if (++state == noteValueVector.end())
-                    state = noteValueVector.begin();
+                if (Music::PulseIterator::doesNoteButtonLock.exchange(true, std::memory_order_release) == false
+                    && Music::PulseIterator::doesPulseIteratorLock.load(std::memory_order_acquire) == false)
+                {
+                    if (++state == noteValueVector.end())
+                        state = noteValueVector.begin();
 
-                setButtonText(String((int) *state));
-                pulse.noteValue = *state;
-                pulse.pulseChangeBroadcaster->sendChangeMessage();
+                    setButtonText(String((int) *state));
+                    pulse.setNoteValue(*state);
+                }
+
+                Music::PulseIterator::doesNoteButtonLock.store(false, std::memory_order_release);
+
                 static_cast<BeatComponent*>(getParentComponent()->getParentComponent())->resized();
             };
         }
@@ -246,17 +246,17 @@ private:
                 addAndMakeVisible(noteButton.get());
             }
 
-            hitButton.setToggleState(pulse.hit, dontSendNotification);
+            hitButton.setToggleState(pulse.getHit(), dontSendNotification);
             hitButton.onClick = [this] {
                 hitButton.setToggleState(!hitButton.getToggleState(), dontSendNotification);
-                pulse.hit = hitButton.getToggleState();
+                pulse.setHit(hitButton.getToggleState());
             };
             addAndMakeVisible(&hitButton);
 
             accentButton.setButtonText(">");
             accentButton.onClick = [this] {
                 accentButton.setToggleState(!accentButton.getToggleState(), dontSendNotification);
-                pulse.accent = accentButton.getToggleState() ? 0.5f : 0.0f;
+                pulse.setAccent(accentButton.getToggleState() ? 0.5f : 0.0f);
             };
             addAndMakeVisible(&accentButton);
         }
@@ -300,7 +300,7 @@ private:
 
             fb.flexDirection = FlexBox::Direction::row;
 
-            int n = (int) beat[0]->noteValue / (int) Music::Metre::baseNoteValue;
+            int n = (int) beat[0]->getNoteValue() / (int) Music::Metre::baseNoteValue;
             auto last = pulseList.begin();
 
             while (n-- > 0)
@@ -365,13 +365,9 @@ private:
                 auto* mainComponent = static_cast<MainComponent*>(getParentComponent());
 
                 if (settingButton.getToggleState())
-                {
                     mainComponent->bodyPanel.setCurrentPanel(&mainComponent->bodyPanel.settingPanel);
-                }
                 else
-                {
                     mainComponent->bodyPanel.setCurrentPanel(&mainComponent->bodyPanel.metreListPanel);
-                }
             };
             addAndMakeVisible(&settingButton);
 
