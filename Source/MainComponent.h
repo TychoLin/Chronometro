@@ -231,7 +231,7 @@ private:
         std::vector<Music::NoteValue> noteValueVector {
             Music::NoteValue::quarter,
             Music::NoteValue::eighth,
-            Music::NoteValue::tuplet,
+            Music::NoteValue::triplet,
             Music::NoteValue::sixteenth
         };
     };
@@ -494,6 +494,7 @@ private:
             fb.flexDirection = FlexBox::Direction::column;
 
             fb.items.add(FlexItem(wrapDecibelSlider).withFlex(0, 1, isPortrait ? getHeight() / 10.0f : getHeight() / 5.0f));
+            fb.items.add(FlexItem(*soundStallProcessorEditor).withFlex(0, 1, isPortrait ? getHeight() / 10.0f : getHeight() / 5.0f));
 
             fb.performLayout(getLocalBounds().toFloat());
         }
@@ -556,6 +557,7 @@ private:
         };
 
         WrapDecibelSlider wrapDecibelSlider;
+        std::unique_ptr<AudioProcessorEditor> soundStallProcessorEditor;
     };
 
     struct BodyPanel : public Component

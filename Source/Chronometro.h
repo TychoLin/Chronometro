@@ -1,79 +1,8 @@
 #pragma once
 
 #include "../JuceLibraryCode/JuceHeader.h"
+#include "SoundStall.h"
 #include <list>
-
-class WavetableOscillator
-{
-public:
-    WavetableOscillator(const AudioSampleBuffer& wavetableToUse)
-        : wavetable(wavetableToUse),
-          tableSize(wavetable.getNumSamples() - 1)
-    {
-    }
-
-    void setFrequency(float frequency, float sampleRate)
-    {
-        auto cyclesPerSample = frequency / sampleRate;
-        baseTableDelta = cyclesPerSample * tableSize;
-        tableDelta = baseTableDelta;
-    }
-
-    void setTableDelta(float soundFileSampleRate, float sampleRate)
-    {
-        tableDelta = soundFileSampleRate / sampleRate;
-    }
-
-    void scaleFrequency(float ratio)
-    {
-        currentIndex = 0.0f;
-        tableDelta = baseTableDelta * ratio;
-    }
-
-    void rewindToHead()
-    {
-        currentIndex = 0.0f;
-    }
-
-    forcedinline float getNextSample() noexcept
-    {
-        auto currentSample = readLinearInterpolated();
-
-        if ((currentIndex += tableDelta) > tableSize)
-            currentIndex -= tableSize;
-
-        return currentSample;
-    }
-
-    forcedinline float getNextWavetableSample() noexcept
-    {
-        auto currentSample = readLinearInterpolated();
-
-        if ((currentIndex += tableDelta) > tableSize)
-            return 0.0f;
-
-        return currentSample;
-    }
-
-private:
-    forcedinline float readLinearInterpolated() noexcept
-    {
-        auto index0 = (unsigned int) currentIndex;
-        auto index1 = index0 + 1;
-
-        auto frac = currentIndex - (float) index0;
-
-        auto* table = wavetable.getReadPointer(0);
-        auto value0 = table[index0];
-        auto value1 = table[index1];
-
-        return value0 + frac * (value1 - value0);
-    }
-
-    const AudioSampleBuffer& wavetable;
-    const int tableSize;
-    float currentIndex = 0.0f, baseTableDelta = 0.0f, tableDelta = 0.0f;
-};
 
 class BeatAudioSource;
 
@@ -86,7 +15,7 @@ public:
         half = 2,
         quarter = 4,
         eighth = 8,
-        tuplet = 12,
+        triplet = 12,
         sixteenth = 16
     };
 
@@ -323,20 +252,14 @@ class BeatAudioSource : public AudioSource, public ChangeBroadcaster
 public:
     BeatAudioSource(Music::Metre& metre) : musicMetre(metre)
     {
-        createWavetable(Waveform::LP_Jam_Block);
     }
 
     void prepareToPlay(int samplesPerBlockExpected, double sampleRate) override
     {
-        oscillator.reset(new WavetableOscillator(soundTable));
-
-        // auto frequency = 1760.0f;
-        // oscillator->setFrequency((float) frequency, (float) sampleRate);
-
-        oscillator->setTableDelta((float) soundFileSampleRate, (float) sampleRate);
-
         musicMetre.audioDeviceSampleRate = sampleRate;
         musicMetre.init();
+
+        soundStallProcessor.prepareToPlay(sampleRate, samplesPerBlockExpected);
     }
 
     void releaseResources() override {}
@@ -349,15 +272,29 @@ public:
         }
         else
         {
+            soundStallProcessor.processBlock(*bufferToFill.buffer, midiBuffer);
+
             auto* leftBuffer = bufferToFill.buffer->getWritePointer(0, bufferToFill.startSample);
             auto* rightBuffer = bufferToFill.buffer->getWritePointer(1, bufferToFill.startSample);
 
-            for (auto sample = 0; sample < bufferToFill.numSamples; ++sample)
+            for (auto i = 0; i < bufferToFill.numSamples; ++i)
             {
-                auto levelSample = getLevelSample();
+                auto pulseSample = getPulseSample();
 
-                leftBuffer[sample] = levelSample;
-                rightBuffer[sample] = levelSample;
+                leftBuffer[i] *= pulseSample;
+                rightBuffer[i] *= pulseSample;
+
+                auto accent = (*musicMetre.currentPulse).accent;
+                auto accentProcessor = [&](auto sample) -> auto
+                {
+                    return std::tanh((1 + std::log(10 * accent + 1)) * sample);
+                };
+
+                if (accent > 0.0f)
+                {
+                    leftBuffer[i] = accentProcessor(leftBuffer[i]);
+                    rightBuffer[i] = accentProcessor(rightBuffer[i]);
+                }
             }
         }
     }
@@ -379,7 +316,7 @@ public:
         {
             stopped = true;
             tailOff = 1.0;
-            oscillator->rewindToHead();
+            soundStallProcessor.reset();
 
             sendChangeMessage();
         }
@@ -387,121 +324,50 @@ public:
 
     bool isPlaying() { return !stopped; }
 
-    enum class Waveform
-    {
-        Sine,
-        LP_Jam_Block
-    };
+    AudioProcessorEditor* createEditor() { return soundStallProcessor.createEditor(); }
 
 private:
-    void createWavetable(Waveform w)
-    {
-        waveform = w;
-
-        switch (waveform)
-        {
-            case Waveform::Sine:
-            {
-                soundTable.setSize(1, (int) tableSize + 1);
-                auto* samples = soundTable.getWritePointer(0);
-
-                auto angleDelta = MathConstants<double>::twoPi / (double) (tableSize - 1);
-                auto currentAngle = 0.0;
-
-                for (unsigned int i = 0; i < tableSize; ++i)
-                {
-                    auto sample = std::sin(currentAngle);
-                    samples[i] = (float) sample;
-                    currentAngle += angleDelta;
-                }
-
-                samples[tableSize] = samples[0];
-            }
-            break;
-            case Waveform::LP_Jam_Block:
-            {
-                AudioFormatManager formatManager;
-                formatManager.registerBasicFormats();
-
-                auto dir = File::getSpecialLocation(File::SpecialLocationType::invokedExecutableFile);
-                String relativeFilePath = "Resources/LP_Jam_Block.ogg";
-
-                int numTries = 0;
-
-                while (!dir.getChildFile(relativeFilePath).exists() && numTries++ < 15)
-                    dir = dir.getParentDirectory();
-
-                // sample length: 50675
-                // channels: 2
-                // sample rate: 48000
-                std::unique_ptr<AudioFormatReader> reader(formatManager.createReaderFor(dir.getChildFile(relativeFilePath)));
-
-                if (reader.get() != nullptr)
-                {
-                    soundTable.setSize(reader->numChannels, tableSize);
-                    reader->read(&soundTable, 0, tableSize, 0, true, true);
-                    soundFileSampleRate = reader->sampleRate;
-                }
-            }
-            break;
-            default:
-                jassertfalse;
-                break;
-        }
-    }
-
-    float getLevelSample()
+    float getPulseSample()
     {
         if (musicMetre.currentPulse == musicMetre.end())
             return 0.0f;
 
         if ((*musicMetre.currentPulse).index < (*musicMetre.currentPulse).sampleLength)
         {
-            float levelSample;
+            float pulseSample = 1.0f;
 
             if ((*musicMetre.currentPulse).hit && tailOff > 0.005f)
             {
-                if (waveform == Waveform::LP_Jam_Block)
-                    levelSample = oscillator->getNextWavetableSample();
-                else
-                    levelSample = oscillator->getNextSample();
-
                 if ((*musicMetre.currentPulse).index > (*musicMetre.currentPulse).sampleLength * 0.3f)
                 {
-                    levelSample *= tailOff;
+                    pulseSample *= tailOff;
                     tailOff *= 0.99f;
                 }
             }
             else
             {
-                levelSample = 0.0f;
+                pulseSample = 0.0f;
             }
 
             ++(*musicMetre.currentPulse).index;
-            auto accent = (*musicMetre.currentPulse).accent;
-            return (accent > 0.0f) ? std::tanh((1 + std::log(10 * accent + 1)) * levelSample) : levelSample;
+            return pulseSample;
         }
 
         (*musicMetre.currentPulse).index = 0; // reset
-        oscillator->rewindToHead();
+        soundStallProcessor.reset();
         tailOff = 1.0f;
         ++musicMetre.currentPulse;
 
         if (musicMetre.currentPulse == musicMetre.end())
             musicMetre.currentPulse = musicMetre.begin();
 
-        return getLevelSample();
+        return getPulseSample();
     }
 
     Music::Metre& musicMetre;
 
-    // const unsigned int tableSize = 1 << 7;
-    const unsigned int tableSize = 1 << 11;
-
-    Waveform waveform;
-    AudioSampleBuffer soundTable;
-    double soundFileSampleRate = 0.0;
-    std::unique_ptr<WavetableOscillator> oscillator;
+    MidiBuffer midiBuffer;
+    SoundStallProcessor soundStallProcessor;
 
     bool stopped { true };
     float tailOff = 1.0;

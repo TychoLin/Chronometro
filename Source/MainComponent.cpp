@@ -10,7 +10,9 @@
 
 //==============================================================================
 MainComponent::MainComponent()
-    : beatAudioSource(musicMetre), headerPanel(musicMetre), bodyPanel(musicMetre)
+    : beatAudioSource(musicMetre),
+      headerPanel(musicMetre),
+      bodyPanel(musicMetre)
 {
     // Make sure you set the size of the component after
     // you add any child components.
@@ -18,6 +20,9 @@ MainComponent::MainComponent()
 
     addAndMakeVisible(&headerPanel);
     addAndMakeVisible(&bodyPanel);
+
+    bodyPanel.settingPanel.soundStallProcessorEditor.reset(beatAudioSource.createEditor());
+    bodyPanel.settingPanel.addAndMakeVisible(*bodyPanel.settingPanel.soundStallProcessorEditor);
 
     beatAudioSource.addChangeListener(this);
 
