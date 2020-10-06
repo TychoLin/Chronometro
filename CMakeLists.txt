@@ -18,6 +18,7 @@ set(JUCE_MODULES
   juce_graphics
   juce_gui_basics
   juce_gui_extra
+  juce_opengl
 )
 
 if(NOT JUCE_ROOT_DIR)
@@ -27,16 +28,13 @@ endif()
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/juce-cmake/cmake")
 find_package(JUCE REQUIRED COMPONENTS ${JUCE_MODULES})
 
-set(SOURCES Source/Main.cpp Source/MainComponent.cpp)
+set(SOURCES Source/Main.cpp Source/MainComponent.cpp JuceLibraryCode/BinaryData.cpp)
 
-set(RESOURCE_FILES Resources/LP_Jam_Block.ogg Resources/Fire.wav)
-
-add_executable(${PROJECT_NAME} ${SOURCES} ${RESOURCE_FILES})
+add_executable(${PROJECT_NAME} ${SOURCES})
 set_target_properties(${PROJECT_NAME} PROPERTIES
   MACOSX_BUNDLE true
   MACOSX_BUNDLE_BUNDLE_NAME ${PROJECT_NAME}
   MACOSX_BUNDLE_BUNDLE_VERSION ${Chronometro_VERSION}
-  RESOURCE "${RESOURCE_FILES}"
 )
 target_link_libraries(${PROJECT_NAME} ${JUCE_LIBRARIES})
 source_group(Source FILES ${SOURCES})

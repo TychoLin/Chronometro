@@ -610,6 +610,8 @@ private:
     HeaderPanel headerPanel;
     BodyPanel bodyPanel;
 
+    OpenGLContext openGLContext;
+
     float& currentLevel = bodyPanel.settingPanel.wrapDecibelSlider.currentLevel;
     float& targetLevel = bodyPanel.settingPanel.wrapDecibelSlider.targetLevel;
 

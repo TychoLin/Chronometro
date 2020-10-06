@@ -26,6 +26,8 @@ MainComponent::MainComponent()
 
     beatAudioSource.addChangeListener(this);
 
+    openGLContext.attachTo(*getTopLevelComponent());
+
     // setSize(640, 360);
     setSize(360, 640);
 

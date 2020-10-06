@@ -75,15 +75,10 @@ public:
     AudioFileProcessor(const String name, AudioFormatManager& formatManager)
         : name(name), formatManager(formatManager)
     {
-        auto dir = File::getSpecialLocation(File::SpecialLocationType::invokedExecutableFile);
-        String relativeFilePath = "Resources/" + soundMap[name.toStdString()];
-
-        int numTries = 0;
-
-        while (!dir.getChildFile(relativeFilePath).exists() && numTries++ < 15)
-            dir = dir.getParentDirectory();
-
-        std::unique_ptr<AudioFormatReader> reader(formatManager.createReaderFor(dir.getChildFile(relativeFilePath)));
+        int numBytes;
+        auto* binaryData = BinaryData::getNamedResource(soundMap[name.toStdString()], numBytes);
+        auto* audioFormatReader = formatManager.createReaderFor(std::make_unique<MemoryInputStream>(static_cast<const void*>(binaryData), numBytes, false));
+        std::unique_ptr<AudioFormatReader> reader(audioFormatReader);
 
         if (reader.get() != nullptr)
         {
@@ -134,9 +129,9 @@ public:
 private:
     const String name;
 
-    std::map<std::string, std::string> soundMap {
-        { "LP_Jam_Block", "LP_Jam_Block.ogg" },
-        { "Fire", "Fire.wav" }
+    std::map<std::string, const char*> soundMap {
+        { "LP_Jam_Block", "LP_Jam_Block_ogg" },
+        { "Fire", "Fire_wav" }
     };
 
     AudioFormatManager& formatManager;
