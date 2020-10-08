@@ -9,6 +9,7 @@
             file="Resources/LP_Jam_Block.ogg"/>
     </GROUP>
     <GROUP id="{B473F6E6-D008-9660-43BC-2DC76F0820AB}" name="Source">
+      <FILE id="FoRigk" name="Music.h" compile="0" resource="0" file="Source/Music.h"/>
       <FILE id="QZcofq" name="Chronometro.h" compile="0" resource="0" file="Source/Chronometro.h"/>
       <FILE id="rXjbH5" name="SoundStall.h" compile="0" resource="0" file="Source/SoundStall.h"/>
       <FILE id="xEgeCW" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>

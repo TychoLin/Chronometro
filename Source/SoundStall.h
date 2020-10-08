@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../JuceLibraryCode/JuceHeader.h"
+#include "Music.h"
 #include <algorithm>
 #include <map>
 
@@ -37,7 +38,7 @@ private:
 class OscillatorProcessor : public ProcessorBase
 {
 public:
-    OscillatorProcessor(const String name) : name(name)
+    OscillatorProcessor(const String name, Music::Metre& metre) : name(name), musicMetre(metre)
     {
         oscillator.setFrequency(1760.0f);
         oscillator.initialise([](float x) { return std::sin(x); }, 128);
@@ -51,9 +52,19 @@ public:
 
     void processBlock(AudioSampleBuffer& buffer, MidiBuffer&) override
     {
-        juce::dsp::AudioBlock<float> block(buffer);
-        juce::dsp::ProcessContextReplacing<float> context(block);
-        oscillator.process(context);
+        for (auto i = 0; i < buffer.getNumSamples(); ++i)
+        {
+            auto pulseSample = musicMetre.getPulseSample(*this);
+            auto currentSample = oscillator.processSample(0.0f);
+
+            currentSample *= pulseSample;
+
+            for (auto channel = 0; channel < buffer.getNumChannels(); ++channel)
+            {
+                auto* outBuffer = buffer.getWritePointer(channel);
+                outBuffer[i] = currentSample;
+            }
+        }
     }
 
     void reset() override
@@ -65,6 +76,7 @@ public:
 
 private:
     const String name;
+    Music::Metre& musicMetre;
 
     juce::dsp::Oscillator<float> oscillator;
 };
@@ -72,8 +84,8 @@ private:
 class AudioFileProcessor : public ProcessorBase
 {
 public:
-    AudioFileProcessor(const String name, AudioFormatManager& formatManager)
-        : name(name), formatManager(formatManager)
+    AudioFileProcessor(const String name, Music::Metre& metre, AudioFormatManager& formatManager)
+        : name(name), musicMetre(metre), formatManager(formatManager)
     {
         int numBytes;
         auto* binaryData = BinaryData::getNamedResource(soundMap[name.toStdString()], numBytes);
@@ -102,11 +114,9 @@ public:
 
     void processBlock(AudioSampleBuffer& buffer, MidiBuffer&) override
     {
-        auto* leftBuffer = buffer.getWritePointer(0);
-        auto* rightBuffer = buffer.getWritePointer(1);
-
         for (auto i = 0; i < buffer.getNumSamples(); ++i)
         {
+            auto pulseSample = musicMetre.getPulseSample(*this);
             auto currentSample = lookupTable.getUnchecked(currentIndex);
 
             if ((currentIndex + tableDelta) >= bufferSize)
@@ -114,8 +124,13 @@ public:
             else
                 currentIndex += tableDelta;
 
-            leftBuffer[i] = currentSample;
-            rightBuffer[i] = currentSample;
+            currentSample *= pulseSample;
+
+            for (auto channel = 0; channel < buffer.getNumChannels(); ++channel)
+            {
+                auto* outBuffer = buffer.getWritePointer(channel);
+                outBuffer[i] = currentSample;
+            }
         }
     }
 
@@ -128,6 +143,7 @@ public:
 
 private:
     const String name;
+    Music::Metre& musicMetre;
 
     std::map<std::string, const char*> soundMap {
         { "LP_Jam_Block", "LP_Jam_Block_ogg" },
@@ -150,8 +166,9 @@ public:
     using AudioGraphIOProcessor = AudioProcessorGraph::AudioGraphIOProcessor;
     using Node = AudioProcessorGraph::Node;
 
-    SoundStallProcessor()
-        : AudioProcessor(BusesProperties().withOutput("Output", AudioChannelSet::stereo(), true)),
+    SoundStallProcessor(Music::Metre& metre)
+        : musicMetre(metre),
+          AudioProcessor(BusesProperties().withInput("Input", juce::AudioChannelSet::stereo(), true).withOutput("Output", AudioChannelSet::stereo(), true)),
           mainProcessor(new AudioProcessorGraph()),
           processorSlot1(new AudioParameterChoice("Slot 1", "Sound", processorChoices, 1))
     {
@@ -266,7 +283,7 @@ private:
 
                 if (shouldAddNode)
                 {
-                    slots.set(0, mainProcessor->addNode(std::make_unique<OscillatorProcessor>(processorChoices[waveformIndex])));
+                    slots.set(0, mainProcessor->addNode(std::make_unique<OscillatorProcessor>(processorChoices[waveformIndex], musicMetre)));
                     processorNodePtrs.push_back(slots.getUnchecked(0));
                 }
 
@@ -279,7 +296,7 @@ private:
 
                 if (shouldAddNode)
                 {
-                    slots.set(0, mainProcessor->addNode(std::make_unique<AudioFileProcessor>(processorChoices[waveformIndex], formatManager)));
+                    slots.set(0, mainProcessor->addNode(std::make_unique<AudioFileProcessor>(processorChoices[waveformIndex], musicMetre, formatManager)));
                     processorNodePtrs.push_back(slots.getUnchecked(0));
                 }
 
@@ -336,6 +353,12 @@ private:
                 node->getProcessor()->enableAllBuses();
         }
 
+        for (auto node : processorNodePtrs)
+        {
+            bool shouldBeBypassed = !mainProcessor->isConnected(audioInputNode->nodeID, node->nodeID);
+            node->setBypassed(shouldBeBypassed);
+        }
+
         slot1Node = slots.getUnchecked(0);
     }
 
@@ -345,6 +368,8 @@ private:
             mainProcessor->addConnection({ { audioInputNode->nodeID, channel },
                                            { audioOutputNode->nodeID, channel } });
     }
+
+    Music::Metre& musicMetre;
 
     AudioFormatManager formatManager;
 

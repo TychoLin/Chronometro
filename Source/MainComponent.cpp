@@ -36,12 +36,12 @@ MainComponent::MainComponent()
         && !RuntimePermissions::isGranted(RuntimePermissions::recordAudio))
     {
         RuntimePermissions::request(RuntimePermissions::recordAudio,
-                                    [&](bool granted) { if (granted)  setAudioChannels (0, 2); });
+                                    [&](bool granted) { if (granted)  setAudioChannels (2, 2); });
     }
     else
     {
         // Specify the number of input and output channels that we want to open
-        setAudioChannels(0, 2);
+        setAudioChannels(2, 2);
     }
 }
 
